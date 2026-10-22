@@ -45,10 +45,30 @@ Tables, columns, data types, defaults and the Rating Scale rows are in `data-mod
 Prerequisites: a Dataverse environment in GCC, maker rights, and the ability to create a Dataverse team backed by an Entra security group.
 
 1. Create a solution and add the tables in `data-model.md` (maker portal, Tables). Add one Appraisal Settings row with the defaults in the assumptions table (90, 6, 5, No) and the five Rating Scale rows.
-2. Create an Entra security group for the ASAs, then a Dataverse team of type Microsoft Entra ID security group linked to it, named exactly `ASA Agents`. Give the team a security role that can create and read all six tables.
+2. Create an Entra security group for the ASAs, then a Dataverse team of type Microsoft Entra ID security group linked to it, named exactly `ASA Agents`. Give the team the **Appraisal ASA** role and give everyone who uses the app the **Appraisal User** role (see Security roles below).
 3. Create the canvas app inside the solution, add the data sources listed at the top of `app-formulas.txt`, build the eight screens, and paste the formulas.
 4. Build the four flows in `flows.md` in the same solution.
 5. Test with four users: one ASA, one rating supervisor, one reviewing supervisor, one employee.
+
+## Security roles (POC starting point)
+
+Create both roles in the Power Platform admin center: environment, Settings, Users + permissions, Security roles, New role. Use the Business Unit scope on every privilege (single business unit). Leave the team inheritance option at its default (direct user access level and team privileges) so team members get the role. C = Create, R = Read, W = Write, D = Delete, A = Append, AT = Append To.
+
+| Table | Appraisal ASA (assign to the Dataverse team) | Appraisal User (rating supervisor, reviewing supervisor, employee) |
+|---|---|---|
+| Appraisal | C, R, W, A, AT | R, W, AT |
+| Responsibility | C, R, W, D, A | C, R, W, D, A |
+| Disciplinary Action | R | C, R, W, A |
+| Corrective Action Plan | R | C, R, W, A |
+| Appraisal Signature | R | C, R, A |
+| Rating Scale | R | R |
+| Appraisal Setting | R | R |
+
+- Append on a table and Append To on the table it points to are what allow setting a lookup. If saving a row fails on a lookup to User, add Append To on the User table.
+- Every app user needs one of these roles, and the app must be shared with them.
+- The flows' service account needs create, read and write on all seven tables.
+- The app reads the Users and Teams tables at start-up. If `gIsASA` is false for a team member, check read access to those two tables.
+- The app limits what each person can do on screen, but this role setup does not stop a user from editing rows another way. Real row-level security is a separate design step.
 
 ## Diagram coverage
 
