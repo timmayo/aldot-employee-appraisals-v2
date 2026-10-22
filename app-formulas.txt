@@ -1,0 +1,391 @@
+APPRAISAL POC - POWER FX (canvas app)
+
+Names are display names from README.md. Items marked [VERIFY] depend on how
+Power Apps exposes the table or choice in your environment: confirm the exact
+name with IntelliSense in the formula bar.
+
+Screens: scrHome, scrPreFront, scrPreBack, scrMid, scrAnnualFront,
+scrAnnualBack, scrDisciplinary, scrDates.
+Add data sources: Appraisals, Responsibilities, Disciplinary Actions,
+Corrective Action Plans, Appraisal Signatures, Appraisal Settings, Rating Scale,
+Users, Teams.
+
+Global variables used: gUser, gSettings, gIsASA, gAppraisal, gIsRater,
+gIsReviewer, gIsEmployee, gDaysLeft, gCanEditResp, gRatableCount, gRatedCount,
+gRespScore, gDiscCount, gDiscScore, gDiscComplete, gGateOpen, gPerfScore.
+Collections: colResp, colScale.
+
+
+=============================================================
+App.OnStart
+=============================================================
+Set(gUser, LookUp(Users, 'Primary Email' = User().Email));
+Set(gSettings, First('Appraisal Settings'));
+ClearCollect(colScale, 'Rating Scale');
+// [VERIFY] the N:N property name for team membership (teammembership_association)
+Set(gIsASA, CountRows(Filter(gUser.Teams, 'Team Name' = "ASA Agents")) > 0);
+
+
+=============================================================
+scrHome - galAppraisals.Items
+(role views: ASA sees everything, everyone else sees only their own rows;
+ not fully delegable, fine for the POC - set the data row limit to 2000)
+=============================================================
+Sort(
+    Filter(
+        Appraisals,
+        gIsASA
+            || 'Rating Supervisor'.User = gUser.User
+            || 'Reviewing Supervisor'.User = gUser.User
+            || Employee.User = gUser.User
+    ),
+    'Appraisal Year End',
+    SortOrder.Descending
+)
+
+
+=============================================================
+scrHome - galAppraisals.OnSelect (open the right screen for the stage)
+=============================================================
+Set(gAppraisal, ThisItem);
+Set(gIsRater, ThisItem.'Rating Supervisor'.User = gUser.User);
+Set(gIsReviewer, ThisItem.'Reviewing Supervisor'.User = gUser.User);
+Set(gIsEmployee, ThisItem.Employee.User = gUser.User);
+Navigate(
+    Switch(
+        ThisItem.Stage,
+        'Stage (Appraisals)'.'Pre - ASA Setup', scrPreFront,
+        'Stage (Appraisals)'.'Pre - Supervisor Review', scrPreFront,
+        'Stage (Appraisals)'.'Pre - Awaiting Signatures', scrPreFront,
+        'Stage (Appraisals)'.'Pre - Complete', scrPreFront,
+        'Stage (Appraisals)'.'Mid - Open', scrMid,
+        'Stage (Appraisals)'.'Mid - Complete', scrMid,
+        scrAnnualFront
+    )
+)
+
+
+=============================================================
+btnRecalc.OnSelect  (hidden button on every screen that shows scores;
+ everything else calls Select(btnRecalc) after a change.
+ Also run it in each screen's OnVisible.)
+=============================================================
+ClearCollect(
+    colResp,
+    AddColumns(
+        AddColumns(
+            Filter(Responsibilities, Appraisal.Appraisal = gAppraisal.Appraisal),
+            "IsRatable",
+            DateDiff('Date Added', Coalesce('Date Ended', Today()), TimeUnit.Days) >= gSettings.'Min Observation Days'
+        ),
+        "Points",
+        LookUp(colScale, 'Rating Value' = Rating, 'Responsibility Points')
+    )
+);
+Set(gRatableCount, CountRows(Filter(colResp, IsRatable)));
+Set(gRatedCount, CountRows(Filter(colResp, IsRatable, !IsBlank(Rating))));
+// responsibility score = average of the mapped points (0-10)
+Set(
+    gRespScore,
+    If(gRatedCount = 0, 0, Round(Sum(Filter(colResp, IsRatable, !IsBlank(Rating)), Points) / gRatedCount, 1))
+);
+Set(gDiscCount, CountRows(Filter('Disciplinary Actions', Appraisal.Appraisal = gAppraisal.Appraisal)));
+// no actions listed = 0; otherwise the rater's disciplinary rating maps to points (0-10)
+Set(
+    gDiscScore,
+    If(gDiscCount = 0, 0, Coalesce(LookUp(colScale, 'Rating Value' = gAppraisal.'Disciplinary Rating', 'Disciplinary Points'), 0))
+);
+Set(gDiscComplete, gDiscCount = 0 || !IsBlank(gAppraisal.'Disciplinary Rating'));
+Set(gGateOpen, gRatableCount > 0 && gRatedCount = gRatableCount && gAppraisal.'Disciplinary Reviewed' && gDiscComplete);
+Set(gPerfScore, If(gGateOpen, Max(0, gRespScore - gDiscScore), Blank()));
+// 90-day rule: who may change responsibilities right now
+Set(gDaysLeft, DateDiff(Today(), gAppraisal.'Appraisal Year End', TimeUnit.Days));
+Set(
+    gCanEditResp,
+    If(
+        gAppraisal.Stage = 'Stage (Appraisals)'.'Pre - ASA Setup', gIsASA,
+        gAppraisal.Stage = 'Stage (Appraisals)'.'Pre - Supervisor Review', gIsRater,
+        gAppraisal.Stage = 'Stage (Appraisals)'.'Mid - Open', gIsRater && gDaysLeft >= gSettings.'Min Observation Days',
+        false
+    )
+)
+
+
+=============================================================
+scrPreFront / scrMid - responsibilities
+=============================================================
+// galResp.Items
+Sort(colResp, 'Date Added', SortOrder.Ascending)
+
+// lblResp.Strikethrough (retired responsibilities are highlighted and dated)
+!IsBlank(ThisItem.'Date Ended')
+
+// lblResp.Text
+ThisItem.Description
+    & If(!IsBlank(ThisItem.'Date Ended'), "  (no longer performed as of " & Text(ThisItem.'Date Ended', "mm/dd/yyyy") & ")", "")
+    & If(ThisItem.'Date Added' > gAppraisal.'Appraisal Year Start', "  (added " & Text(ThisItem.'Date Added', "mm/dd/yyyy") & ")", "")
+
+// btnAddResp.DisplayMode
+If(gCanEditResp && !IsBlank(Trim(txtNewResp.Text)), DisplayMode.Edit, DisplayMode.Disabled)
+
+// btnAddResp.OnSelect
+Patch(
+    Responsibilities,
+    Defaults(Responsibilities),
+    {
+        Appraisal: gAppraisal,
+        Description: Trim(txtNewResp.Text),
+        'Expected Results': txtNewResults.Text,
+        'Date Added': If(gAppraisal.Stage = 'Stage (Appraisals)'.'Mid - Open', Today(), gAppraisal.'Appraisal Year Start')
+    }
+);
+Reset(txtNewResp);
+Reset(txtNewResults);
+Select(btnRecalc)
+
+// btnRetireResp.DisplayMode (mid-year only: stamps the end date; inside the 90-day window this stays disabled)
+If(gCanEditResp && gAppraisal.Stage = 'Stage (Appraisals)'.'Mid - Open' && !IsBlank(galResp.Selected) && IsBlank(galResp.Selected.'Date Ended'), DisplayMode.Edit, DisplayMode.Disabled)
+
+// btnRetireResp.OnSelect
+Patch(Responsibilities, LookUp(Responsibilities, Responsibility = galResp.Selected.Responsibility), {'Date Ended': Today()});
+Select(btnRecalc)
+
+// btnRemoveResp.DisplayMode (pre-appraisal stages only; mid-year uses Retire so history is kept)
+If(gCanEditResp && gAppraisal.Stage <> 'Stage (Appraisals)'.'Mid - Open' && !IsBlank(galResp.Selected), DisplayMode.Edit, DisplayMode.Disabled)
+
+// btnRemoveResp.OnSelect
+Remove(Responsibilities, LookUp(Responsibilities, Responsibility = galResp.Selected.Responsibility));
+Select(btnRecalc)
+
+// lblWindowWarning.Visible
+gAppraisal.Stage = 'Stage (Appraisals)'.'Mid - Open' && gDaysLeft < gSettings.'Min Observation Days'
+
+// lblWindowWarning.Text
+"Fewer than " & gSettings.'Min Observation Days' & " days remain in the appraisal year. Responsibilities cannot be changed now; the employee is rated on current responsibilities and changes are made in the next pre-appraisal."
+
+
+=============================================================
+scrPreFront - btnSendToRater (ASA hands the pre-appraisal to the rating supervisor)
+=============================================================
+// DisplayMode
+If(gIsASA && gAppraisal.Stage = 'Stage (Appraisals)'.'Pre - ASA Setup' && CountRows(colResp) > 0, DisplayMode.Edit, DisplayMode.Disabled)
+
+// OnSelect
+Set(gAppraisal, Patch(Appraisals, gAppraisal, {Stage: 'Stage (Appraisals)'.'Pre - Supervisor Review'}));
+Back()
+
+
+=============================================================
+scrPreBack - rating supervisor reviews with the employee, then signs
+=============================================================
+// chkDiscussed.Default
+gAppraisal.'Work Habits Discussed'
+// chkDiscussed label: "Discussed Attendance, Punctuality, Cooperation with Coworkers and Compliance with Rules"
+
+// btnPreSign.DisplayMode
+If(gIsRater && gAppraisal.Stage = 'Stage (Appraisals)'.'Pre - Supervisor Review' && chkDiscussed.Value, DisplayMode.Edit, DisplayMode.Disabled)
+
+// btnPreSign.OnSelect  (the rating supervisor's click is their signature; the flow collects the rest)
+Patch(
+    'Appraisal Signatures',
+    Defaults('Appraisal Signatures'),
+    {
+        Appraisal: gAppraisal,
+        Phase: 'Phase (Appraisal Signatures)'.Pre,
+        Role: 'Role (Appraisal Signatures)'.'Rating Supervisor',
+        Signer: gUser,
+        'Signed On': Now(),
+        Outcome: 'Outcome (Appraisal Signatures)'.Approved
+    }
+);
+Set(
+    gAppraisal,
+    Patch(Appraisals, gAppraisal, {'Work Habits Discussed': chkDiscussed.Value, Stage: 'Stage (Appraisals)'.'Pre - Awaiting Signatures'})
+);
+Back()
+
+
+=============================================================
+scrMid
+=============================================================
+// ddMidRating.Items
+Choices(Appraisals.'Mid Feedback Rating')
+// ddMidRating.DefaultSelectedItems
+[gAppraisal.'Mid Feedback Rating']
+
+// tglNeedsCAP.Default  (label: "Employee was disciplined or has weak performance in an area")
+gAppraisal.'Needs Corrective Action'
+// tglNeedsCAP.OnChange
+Set(gAppraisal, Patch(Appraisals, gAppraisal, {'Needs Corrective Action': tglNeedsCAP.Value}))
+
+// galCAP.Items
+Filter('Corrective Action Plans', Appraisal.Appraisal = gAppraisal.Appraisal)
+
+// btnAddCAP.OnSelect
+Patch(
+    'Corrective Action Plans',
+    Defaults('Corrective Action Plans'),
+    {Appraisal: gAppraisal, 'Area of Concern': txtCAPArea.Text, Plan: txtCAPPlan.Text, 'Target Date': dpCAPTarget.SelectedDate}
+);
+Reset(txtCAPArea);
+Reset(txtCAPPlan)
+
+// btnCompleteMid.DisplayMode
+If(
+    gIsRater
+        && gAppraisal.Stage = 'Stage (Appraisals)'.'Mid - Open'
+        && !IsBlank(ddMidRating.Selected)
+        && !IsBlank(dpSession.SelectedDate)
+        && (!gAppraisal.'Needs Corrective Action' || CountRows(galCAP.AllItems) > 0),
+    DisplayMode.Edit,
+    DisplayMode.Disabled
+)
+
+// btnCompleteMid.OnSelect
+Set(
+    gAppraisal,
+    Patch(
+        Appraisals,
+        gAppraisal,
+        {
+            'Mid Feedback Rating': ddMidRating.Selected,
+            'Mid Feedback Notes': txtMidNotes.Text,
+            'Mid Session Date': dpSession.SelectedDate,
+            'Annual Due Date': DateAdd(dpSession.SelectedDate, gSettings.'Annual Offset Months', TimeUnit.Months),
+            Stage: 'Stage (Appraisals)'.'Mid - Complete'
+        }
+    )
+);
+Back()
+
+
+=============================================================
+scrAnnualFront - ratings and work habits
+=============================================================
+// ddRating.Items  (display the Label column, e.g. "5 - Exceeds Expectations")
+Sort(colScale, 'Rating Value', SortOrder.Descending)
+// ddRating.DefaultSelectedItems
+LookUp(colScale, 'Rating Value' = ThisItem.Rating)
+
+// ddRating.DisplayMode (inside the gallery of colResp)
+If(
+    gIsRater && gAppraisal.Stage = 'Stage (Appraisals)'.'Annual - Supervisor Rating' && ThisItem.IsRatable,
+    DisplayMode.Edit,
+    DisplayMode.Disabled
+)
+
+// ddRating.OnChange
+Patch(Responsibilities, LookUp(Responsibilities, Responsibility = ThisItem.Responsibility), {Rating: ddRating.Selected.'Rating Value'});
+Select(btnRecalc)
+
+// lblNotRatable.Visible / .Text (responsibility observed fewer than the minimum days)
+!ThisItem.IsRatable
+"Not rated: observed fewer than " & gSettings.'Min Observation Days' & " days"
+
+// ddAttendance.Items (repeat for Punctuality, Cooperation, Compliance)
+Choices(Appraisals.Attendance)
+// ddAttendance.DefaultSelectedItems
+[gAppraisal.Attendance]
+// ddAttendance.OnChange
+Set(gAppraisal, Patch(Appraisals, gAppraisal, {Attendance: ddAttendance.Selected}))
+
+// lblRespScore.Text
+Text(gRespScore, "0.0") & " / 10 (" & gRatedCount & " of " & gRatableCount & " responsibilities rated)"
+
+
+=============================================================
+scrDisciplinary
+=============================================================
+// galDisc.Items
+Filter('Disciplinary Actions', Appraisal.Appraisal = gAppraisal.Appraisal)
+
+// btnAddDisc.OnSelect
+Patch(
+    'Disciplinary Actions',
+    Defaults('Disciplinary Actions'),
+    {Appraisal: gAppraisal, 'Action Date': dpDisc.SelectedDate, Description: txtDiscDesc.Text}
+);
+Reset(txtDiscDesc);
+Select(btnRecalc)
+
+// ddDiscRating.Items  (display the Label column; only used when actions are listed)
+Sort(colScale, 'Rating Value', SortOrder.Descending)
+// ddDiscRating.DefaultSelectedItems
+LookUp(colScale, 'Rating Value' = gAppraisal.'Disciplinary Rating')
+// ddDiscRating.Visible
+gDiscCount > 0
+// ddDiscRating.DisplayMode
+If(gIsRater && gAppraisal.Stage = 'Stage (Appraisals)'.'Annual - Supervisor Rating', DisplayMode.Edit, DisplayMode.Disabled)
+// ddDiscRating.OnChange
+Set(gAppraisal, Patch(Appraisals, gAppraisal, {'Disciplinary Rating': ddDiscRating.Selected.'Rating Value'}));
+Select(btnRecalc)
+// lblDiscHint: "Select the rating that reflects the disciplinary actions listed. No actions listed means a disciplinary score of 0."
+
+// tglDiscReviewed.Default  (label: "All disciplinary actions are listed, or there are none")
+gAppraisal.'Disciplinary Reviewed'
+// tglDiscReviewed.OnChange
+Set(gAppraisal, Patch(Appraisals, gAppraisal, {'Disciplinary Reviewed': tglDiscReviewed.Value}));
+Select(btnRecalc)
+
+
+=============================================================
+scrAnnualBack - scores, locked performance score, submit
+=============================================================
+// lblDiscScore.Text
+gDiscCount & " action(s) listed. Disciplinary score: " & gDiscScore & " / 10"
+
+// lblPerfScore.Text
+If(
+    gGateOpen,
+    Text(gPerfScore, "0.0") & " / 10",
+    "Locked until every responsibility is rated and the disciplinary section is complete"
+)
+
+// btnSubmitAnnual.DisplayMode
+If(
+    gGateOpen
+        && gIsRater
+        && gAppraisal.Stage = 'Stage (Appraisals)'.'Annual - Supervisor Rating'
+        && !IsBlank(gAppraisal.Attendance)
+        && !IsBlank(gAppraisal.Punctuality)
+        && !IsBlank(gAppraisal.Cooperation)
+        && !IsBlank(gAppraisal.Compliance),
+    DisplayMode.Edit,
+    DisplayMode.Disabled
+)
+
+// btnSubmitAnnual.OnSelect
+Patch(
+    'Appraisal Signatures',
+    Defaults('Appraisal Signatures'),
+    {
+        Appraisal: gAppraisal,
+        Phase: 'Phase (Appraisal Signatures)'.Annual,
+        Role: 'Role (Appraisal Signatures)'.'Rating Supervisor',
+        Signer: gUser,
+        'Signed On': Now(),
+        Outcome: 'Outcome (Appraisal Signatures)'.Approved
+    }
+);
+Set(
+    gAppraisal,
+    Patch(
+        Appraisals,
+        gAppraisal,
+        {
+            'Responsibility Score': gRespScore,
+            'Disciplinary Score': gDiscScore,
+            'Performance Score': gPerfScore,
+            Stage: 'Stage (Appraisals)'.'Annual - Awaiting Signatures'
+        }
+    )
+);
+Navigate(scrHome)
+
+
+=============================================================
+scrDates (date list)
+=============================================================
+// galDates.Items
+Filter(Appraisals, Employee.User = gAppraisal.Employee.User)
+// Show: 'Appraisal Year Start', 'Pre Signed On', 'Mid Due Date', 'Mid Session Date', 'Annual Due Date', 'Appraisal Year End'
