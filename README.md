@@ -2,13 +2,13 @@
 
 Canvas app + Dataverse + Power Automate. Proves the pre, mid and annual appraisal workflows from the two customer diagrams.
 
-Files: `app-formulas.txt` (Power Fx), `flows.md` (4 flows).
+Files: `data-model.md` (tables and columns), `app-formulas.txt` (Power Fx), `flows.md` (4 flows).
 
 ## Assumptions (change them in the Appraisal Settings row or the Rating Scale table, no code change)
 
 | Topic | Assumption | Setting |
 |---|---|---|
-| Rating scale | Each responsibility is rated 1-5; the rating maps to points in the Rating Scale table (below) | Rating Scale table |
+| Rating scale | Each responsibility is rated 1-5; the rating maps to points in the Rating Scale table (see `data-model.md`) | Rating Scale table |
 | Responsibility score | Average of the mapped responsibility points across the rated responsibilities, 0-10, one decimal | Rating Scale table |
 | Disciplinary score | No disciplinary actions listed: 0. Otherwise the rating supervisor selects one rating (same 1-5 scale) for the actions listed, and it maps to disciplinary points, 0-10 | Rating Scale table |
 | Performance score | **Calculated**, not typed: responsibility score minus disciplinary score, floor of 0, range 0-10. Stays locked until every ratable responsibility is rated and the rater confirms the disciplinary section (and, if actions are listed, selects the disciplinary rating) | n/a |
@@ -36,40 +36,15 @@ Files: `app-formulas.txt` (Power Fx), `flows.md` (4 flows).
 
 Reviewing supervisor is a lookup on each appraisal, so it can be anyone, not only a manager's manager. The POC filters rows in the app; proper row security is a separate design step.
 
-## Data model (Dataverse, one business unit)
+## Data model
 
-Publisher prefix of your choice; display names below are what the formulas use.
-
-**Appraisal Settings** (one row): Min Observation Days (whole number), Mid Offset Months (whole number), Annual Offset Months (whole number), Pre Requires Employee Signature (yes/no).
-
-**Rating Scale** (five rows; primary name column is Label): Label (text), Rating Value (whole number), Responsibility Points (whole number), Disciplinary Points (whole number).
-
-| Label | Rating Value | Responsibility Points (10 = best) | Disciplinary Points (10 = most action) |
-|---|---|---|---|
-| 5 - Exceeds Expectations | 5 | 10 | 0 |
-| 4 - Frequently Exceeds Expectations | 4 | 8 | 2 |
-| 3 - Meets Expectations | 3 | 5 | 5 |
-| 2 - Partially Meets Expectations | 2 | 3 | 7 |
-| 1 - Needs Improvement | 1 | 0 | 10 |
-
-**Appraisals** (one row per employee per appraisal year, covers pre, mid and annual):
-Employee, Rating Supervisor, Reviewing Supervisor (lookups to Users); Cycle Type (choice: Standard, Probationary); Appraisal Year Start, Appraisal Year End, Pre Signed On, Mid Due Date, Mid Session Date, Annual Due Date, Annual Signed On (date only); Position Title, Division (text, the heading); Stage (choice, below); Work Habits Discussed (yes/no); Attendance, Punctuality, Cooperation, Compliance (columns using one shared choice, Meets / Needs Improvement); Mid Feedback Rating (choice: Exceptional, Competent, Poor); Mid Feedback Notes (multiline text); Needs Corrective Action (yes/no); Disciplinary Reviewed (yes/no); Disciplinary Rating (whole number 1-5, optional); Responsibility Score, Disciplinary Score, Performance Score (decimal, 1 place).
-
-**Responsibilities**: Appraisal (lookup), Description (text), Expected Results (multiline), Date Added (date only), Date Ended (date only, optional), Rating (whole number 1-5, optional; blank means not yet rated).
-
-**Disciplinary Actions**: Appraisal (lookup), Action Date (date only), Description (text).
-
-**Corrective Action Plans**: Appraisal (lookup), Area of Concern (text), Plan (multiline), Target Date (date only).
-
-**Appraisal Signatures** (audit trail): Appraisal (lookup), Phase (choice: Pre, Annual), Role (choice: Rating Supervisor, Reviewing Supervisor, Employee), Outcome (choice: Approved, Rejected), Signer (lookup to Users), Signed On (date and time), Comments (multiline).
-
-**Stage choice values, in order:** Pre - ASA Setup, Pre - Supervisor Review, Pre - Awaiting Signatures, Pre - Complete, Mid - Open, Mid - Complete, Annual - Supervisor Rating, Annual - Awaiting Signatures, Annual - Complete.
+Tables, columns, data types, defaults and the Rating Scale rows are in `data-model.md`.
 
 ## Build order
 
 Prerequisites: a Dataverse environment in GCC, maker rights, and the ability to create a Dataverse team backed by an Entra security group.
 
-1. Create a solution and add the tables above (maker portal, Tables). Add one Appraisal Settings row with the defaults in the assumptions table (90, 6, 5, No) and the five Rating Scale rows.
+1. Create a solution and add the tables in `data-model.md` (maker portal, Tables). Add one Appraisal Settings row with the defaults in the assumptions table (90, 6, 5, No) and the five Rating Scale rows.
 2. Create an Entra security group for the ASAs, then a Dataverse team of type Microsoft Entra ID security group linked to it, named exactly `ASA Agents`. Give the team a security role that can create and read all six tables.
 3. Create the canvas app inside the solution, add the data sources listed at the top of `app-formulas.txt`, build the eight screens, and paste the formulas.
 4. Build the four flows in `flows.md` in the same solution.
