@@ -23,13 +23,13 @@ Files: `data-model.md` (tables and columns), `app-formulas.txt` (Power Fx), `flo
 
 **Conflict to confirm with the customer:** the diagram shows the employee signing the pre-appraisal, but the answer given was that the employee signs the annual only. The POC follows the answer; flip `Pre Requires Employee Signature` to Yes if the diagram is right.
 
-**To confirm:** the scale mapping is the example you gave. I read it as one table used two ways: each responsibility's rating gives responsibility points, and one rating for the disciplinary actions gives disciplinary points (not a rating per action). If the disciplinary score should instead come from the number of actions, that is a small change in `btnRecalc`.
+**To confirm:** the scale mapping is the example you gave. I read it as one table used two ways: each responsibility's rating gives responsibility points, and one rating for the disciplinary actions gives disciplinary points (not a rating per action). If the disciplinary score should instead come from the number of actions, that is a small change in the recalc button formula.
 
 ## Roles
 
 | Role | How the app knows |
 |---|---|
-| ASA | Member of the Dataverse team **ASA Agents** (Entra group-backed). Not tied to any hierarchy |
+| ASA | Member of the Dataverse team **AL-DOT ASA Agents** (Entra group-backed). Not tied to any hierarchy |
 | Rating supervisor | Appraisal's Rating Supervisor lookup = signed-in user |
 | Reviewing supervisor | Appraisal's Reviewing Supervisor lookup = signed-in user |
 | Employee | Appraisal's Employee lookup = signed-in user |
@@ -45,8 +45,8 @@ Tables, columns, data types, defaults and the Rating Scale rows are in `data-mod
 Prerequisites: a Dataverse environment in GCC, maker rights, and the ability to create a Dataverse team backed by an Entra security group.
 
 1. Create a solution and add the tables in `data-model.md` (maker portal, Tables). Add one Appraisal Settings row with the defaults in the assumptions table (90, 6, 5, No) and the five Rating Scale rows.
-2. Create an Entra security group for the ASAs, then a Dataverse team of type Microsoft Entra ID security group linked to it, named exactly `ASA Agents`. Give the team the **Appraisal ASA** role and give everyone who uses the app the **Appraisal User** role (see Security roles below).
-3. Create the canvas app inside the solution, add the data sources listed at the top of `app-formulas.txt`, build the eight screens, and paste the formulas.
+2. Create an Entra security group for the ASAs, then a Dataverse team of type Microsoft Entra ID security group linked to it, named exactly `AL-DOT ASA Agents` (the name `App.OnStart` checks). Give the team the **Appraisal ASA** role and give everyone who uses the app the **Appraisal User** role (see Security roles below).
+3. Create the canvas app inside the solution, add the data sources listed at the top of `app-formulas.txt`, and build the nine screens by pasting the Power Apps YAML into Studio (the formulas are inside it; `app-formulas.txt` is the readable reference for the same formulas).
 4. Build the four flows in `flows.md` in the same solution.
 5. Test with four users: one ASA, one rating supervisor, one reviewing supervisor, one employee.
 
@@ -83,7 +83,7 @@ Create both roles in the Power Platform admin center: environment, Settings, Use
 | Disciplined or weak performance leads to corrective action plan | Needs Corrective Action, Corrective Action Plans, required before Mid completes |
 | Conduct mid-appraisal session, ideally at six months | Mid Session Date, Mid Due Date |
 | Annual: review heading, rate work habits, 1-5 rating per responsibility | scrAnnualFront |
-| Responsibility score, disciplinary actions, disciplinary score, subtraction | btnRecalc, scrDisciplinary, scrAnnualBack |
+| Responsibility score, disciplinary actions, disciplinary score, subtraction | One hidden recalc button per screen (btnRecalc, btnRecalcMid, btnRecalcAnnFront, btnRecalcDisc, btnRecalcAnnBack), scrDisciplinary, scrAnnualBack |
 | Performance score disabled until inputs complete | gGateOpen, lblPerfScore, btnSubmitAnnual |
 | Forward to reviewing supervisor, all sign, return to ASA | Flow 4 |
 | ASA sends annual and new year's pre-appraisal | Flow 4 creates next year's row |
@@ -93,6 +93,6 @@ Create both roles in the Power Platform admin center: environment, Settings, Use
 
 ## Verify before the demo
 
-- Power Apps names marked `[VERIFY]` in `app-formulas.txt` (team membership property, choice enum names such as `'Stage (Appraisals)'`).
+- Confirmed in Studio: the team membership property is `gUser.'Teams (teammembership_association)'` (add the Teams table as a data source), and choice enum names follow `'Stage (Appraisals)'`, `'Cycle Type (Appraisals)'`, `'Mid Feedback Rating (Appraisals)'`. Re-check them if you rebuild the tables with different names.
 - The `addToTime` month arithmetic in Flow 3 near month ends.
 - The Power Fx itself has not been run. Test the scoring in the app with a few cases: all responsibilities at 3 gives 5.0; a mix of 5, 4, 3 gives 7.7; with actions listed and a disciplinary rating of 2 (7 points) that same 7.7 gives 0.7; a disciplinary rating of 1 (10 points) against that 7.7 gives 0, not a negative number.
