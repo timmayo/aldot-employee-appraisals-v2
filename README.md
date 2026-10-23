@@ -2,7 +2,7 @@
 
 Canvas app + Dataverse + Power Automate. Proves the pre, mid and annual appraisal workflows from the two customer diagrams.
 
-Files: `data-model.md` (tables and columns), `app-formulas.txt` (Power Fx), `flows.md` (4 flows).
+Files: `data-model.md` (tables and columns), `app-formulas.txt` (Power Fx), `flows.md` (4 flows, build guide), `test-plan.md` (end-to-end test steps).
 
 ## Assumptions (change them in the Appraisal Settings row or the Rating Scale table, no code change)
 
